@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, Query, Path
 from sqlmodel import Field, Session, SQLModel, create_engine, select
+from datetime import datetime
 from typing import Annotated
 from enum import Enum
 import requests
@@ -25,11 +26,13 @@ class Transaction_Type(str, Enum):
 class Transaction_Create(SQLModel):
     tr_item_id: int = Field(foreign_key="item.id", nullable=False)
     qty: int = Field(nullable=False)
-    tr_location_id: int = Field(nullable=True)
+    tr_location_id: int = Field(nullable=True, foreign_key= "location.id")
     transaction_type: Transaction_Type = Field(nullable=False)
+
 
 class Transaction(Transaction_Create, table=True):
     transaction_id: int | None = Field(default=None, primary_key=True, unique_items=True, nullable=False)
+    tr_timestamp: datetime = Field(default_factory=datetime.now, nullable=False) 
 
 class BarcodeRequest(SQLModel):
     barcode: str
@@ -144,20 +147,6 @@ def get_inventory_by_location(
         for item_id, data in inventory.items() ]
 
 
-@app.post("/barcode/")
-def find_barcode(request: BarcodeRequest):
-    url = "https://api.upcitemdb.com/prod/trial/lookup"
-    parameters = {"upc": request.barcode}
-    response = requests.get(url, params=parameters)
-    if response.status_code != 200:
-        return {"error": "Failed to fetch barcode data"}
-    data = response.json()
-    items = data.get("items",[])
-    if data.get("items"):
-        return data["items"][0]
-    else:
-        return {"message": "No item found for this barcode"}
-
 def find_food_barcode(request: BarcodeRequest):
     url = f"https://staging.openfoodfacts.org/api/v0/product/{request.barcode}.json"
 
@@ -179,3 +168,17 @@ def find_food_barcode(request: BarcodeRequest):
         "categories": product.get("categories"),
         "image_url": product.get("image_url"),
     }
+
+@app.post("/barcode/")
+def find_barcode(request: BarcodeRequest):
+    url = "https://api.upcitemdb.com/prod/trial/lookup"
+    parameters = {"upc": request.barcode}
+    response = requests.get(url, params=parameters)
+    if response.status_code != 200:
+        return {"error": "Failed to fetch barcode data"}
+    data = response.json()
+    items = data.get("items",[])
+    if data.get("items"):
+        return data["items"][0]
+    else:
+        return find_food_barcode(request)
